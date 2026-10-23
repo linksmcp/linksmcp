@@ -14,7 +14,8 @@ Usage:
   linksmcp [serve]       Start the MCP server on stdio (what your AI app runs)
   linksmcp login         Store your li_at cookie (read from stdin, not echoed)
                          Options: --li-at <value>  --jsessionid <value>
-                                  --cookie-jar <file>  (a linkedin.com cookie export, JSON)
+                                  --cookie-jar <file>  (a linkedin.com cookie export, JSON; more reliable)
+                                  --user-agent <ua>    (the browser the cookies came from)
                                   --country <XX>
   linksmcp status        Print the account status
   linksmcp doctor        Check the cookie with LinkedIn and print today's counts and limits
@@ -115,11 +116,11 @@ async function main(): Promise<void> {
           fail(new ToolError('invalid_request', `Could not read ${jarFile}: ${(err as Error).message}`));
         }
       } else {
-        liAt = flag(args, '--li-at') ?? (await readSecret('Paste the value of your li_at cookie: '));
+        liAt = flag(args, '--li-at') ?? (await readSecret('Paste the value of your li_at cookie (a full cookie export file with --cookie-jar is more reliable): '));
         if (!liAt) fail(new ToolError('invalid_request', 'No cookie given.'));
       }
       try {
-        const status = await door.connect({ cookie_jar: cookieJar, li_at: liAt, jsessionid: flag(args, '--jsessionid'), country: flag(args, '--country') });
+        const status = await door.connect({ cookie_jar: cookieJar, li_at: liAt, jsessionid: flag(args, '--jsessionid'), country: flag(args, '--country'), user_agent: flag(args, '--user-agent') });
         print(status);
         if (status.status !== 'connected') {
           process.stderr.write(`Sign-in failed: ${status.error ?? 'unknown reason'}\n`);

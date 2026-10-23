@@ -1,3 +1,4 @@
+import type { Cookie } from '../auth.js';
 import { ToolError } from '../wire.js';
 
 export const LINKEDIN_ORIGIN = 'https://www.linkedin.com';
@@ -13,6 +14,33 @@ export type FetchLike = (input: string, init?: RequestInit) => Promise<Response>
 export interface Session {
   liAt: string;
   jsessionid: string;
+  /** Every linkedin.com cookie of the browser session; when absent only li_at and JSESSIONID are sent. */
+  cookies?: Cookie[];
+  /**
+   * User agent of the browser the cookies came from. LinkedIn ties a session to the browser that
+   * created it; the same cookies arriving with a different browser fingerprint look like a stolen
+   * session and get signed out. Sending the original browser's user agent keeps them consistent.
+   */
+  userAgent?: string;
+}
+
+/**
+ * The Cookie header for a session: every stored cookie as name=value joined by "; ", with li_at
+ * and JSESSIONID always present and JSESSIONID quoted the way LinkedIn sets it.
+ */
+export function cookieHeader(s: Pick<Session, 'liAt' | 'cookies'> & { jsessionid?: string }): string {
+  const parts: string[] = [`li_at=${s.liAt}`];
+  if (s.jsessionid) parts.push(`JSESSIONID="${s.jsessionid.replace(/^"+|"+$/g, '')}"`);
+  const seen = new Set(parts);
+  for (const c of s.cookies ?? []) {
+    if (c.name === 'li_at' || c.name === 'JSESSIONID') continue;
+    const p = `${c.name}=${c.value}`;
+    if (!seen.has(p)) {
+      seen.add(p);
+      parts.push(p);
+    }
+  }
+  return parts.join('; ');
 }
 
 export interface RequestOptions {
@@ -106,13 +134,17 @@ export class LinkedInHttpError extends ToolError {
 }
 
 /** Gets a JSESSIONID for an li_at cookie by loading the feed once, without following redirects. */
-export async function fetchJsessionid(liAt: string, fetchImpl: FetchLike = fetch): Promise<string> {
+export async function fetchJsessionid(
+  liAt: string,
+  fetchImpl: FetchLike = fetch,
+  opts: { cookies?: Cookie[]; userAgent?: string } = {},
+): Promise<string> {
   let res: Response;
   try {
     res = await fetchImpl(`${LINKEDIN_ORIGIN}/feed/`, {
       method: 'GET',
       redirect: 'manual',
-      headers: { cookie: `li_at=${liAt}`, 'user-agent': USER_AGENT, accept: 'text/html' },
+      headers: { cookie: cookieHeader({ liAt, cookies: opts.cookies }), 'user-agent': opts.userAgent || USER_AGENT, accept: 'text/html' },
       signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     });
   } catch (err) {
@@ -141,13 +173,13 @@ export class LinkedInClient {
 
   private headers(accept: string, hasBody: boolean): Record<string, string> {
     const h: Record<string, string> = {
-      cookie: `li_at=${this.session.liAt}; JSESSIONID="${this.session.jsessionid}"`,
+      cookie: cookieHeader(this.session),
       'csrf-token': this.session.jsessionid,
       'x-restli-protocol-version': '2.0.0',
       'x-li-lang': 'en_US',
       accept,
       'accept-language': 'en-US,en;q=0.9',
-      'user-agent': USER_AGENT,
+      'user-agent': this.session.userAgent || USER_AGENT,
     };
     if (hasBody) h['content-type'] = 'application/json; charset=UTF-8';
     return h;

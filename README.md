@@ -77,22 +77,22 @@ The container keeps its cookie, config and database in `/data`, so mount the sam
 
 ## Sign in
 
-linksmcp signs in with the `li_at` cookie of a LinkedIn session you already have open in your browser. In Chrome:
+linksmcp signs in with the cookies of a LinkedIn session you already have open in your browser. Export all of them rather than only `li_at`: a lone `li_at` cookie tends to be signed out by LinkedIn sooner, while a full export of the signed in browser holds up.
 
-1. Open https://www.linkedin.com and make sure you are signed in.
-2. Open Developer Tools (F12 on Windows and Linux, Cmd+Option+I on Mac) and pick the Application tab.
-3. In the left panel open Storage, then Cookies, then `https://www.linkedin.com`.
-4. Find the row named `li_at` and copy its Value.
+1. Sign in to https://www.linkedin.com in your browser.
+2. Export the cookies for linkedin.com as JSON with a cookie export extension. Any extension that saves an array of `{name, value, domain}` objects works.
+3. Run `npx linksmcp login --cookie-jar cookies.json --user-agent "<your browser's user agent>"`. To find the user agent, type `navigator.userAgent` in the browser console. With it, requests look like the browser the cookies came from.
+4. Delete the export file.
 
-Then run:
+linksmcp checks the cookies against LinkedIn and saves them to `~/.linksmcp/auth.json` with file mode 600, readable only by your user.
 
-```bash
-npx linksmcp login
-```
+### Only the li_at cookie
 
-Paste the cookie when asked. linksmcp checks it against LinkedIn and saves it to `~/.linksmcp/auth.json` with file mode 600, readable only by your user. You can also pass the cookie as the `LINKSMCP_LI_AT` environment variable, or sign in from your assistant with the `connect_linkedin` tool.
+This works too, but LinkedIn signs it out sooner. In Chrome, open Developer Tools on linkedin.com (F12, or Cmd+Option+I on Mac) and go to Application, Storage, Cookies, `https://www.linkedin.com`. Copy the Value of the `li_at` row, run `npx linksmcp login` and paste it when asked. You can also pass it as the `LINKSMCP_LI_AT` environment variable.
 
-A cookie export file works too. Export the cookies for linkedin.com as JSON with a cookie export browser extension and run `npx linksmcp login --cookie-jar cookies.json`. The same JSON, as an array or as a string, is what the `connect_linkedin` tool takes in `cookie_jar`, together with `country`, the two letter code of where the account is normally used. On your own machine `country` is accepted and not used, and plain `li_at` works as a shortcut instead of `cookie_jar`. There is no verification code step here: the cookies either sign in at once or fail at once.
+### From your assistant
+
+The `connect_linkedin` tool takes the same export in `cookie_jar`, as an array or as a string, together with `country`, the two letter code of where the account is normally used. On your own machine `country` is accepted and not used, and plain `li_at` works as a fallback instead of `cookie_jar`. There is no verification code step here: the cookies either sign in at once or fail at once.
 
 The account on your own machine always has the id `local`. `connect_linkedin` and `get_linkedin_status` answer with `{account_id: "local", status, step, error, profile_name, profile_url}`, where `status` is `connected`, `failed` or `disconnected`, plus today's `limits` and a `hint`.
 
@@ -101,17 +101,18 @@ Other commands:
 | Command | What it does |
 | --- | --- |
 | `linksmcp` | Starts the MCP server over stdio. This is what your client runs. |
-| `linksmcp login` | Saves your `li_at` cookie after checking it. |
+| `linksmcp login` | Saves your cookies after checking them. Takes `--cookie-jar <file>` and `--user-agent <string>`, or asks for `li_at` when run without them. |
 | `linksmcp status` | Shows the signed in account and today's usage. |
 | `linksmcp doctor` | Checks Node, the data folder, the cookie and the connection to LinkedIn. |
-| `linksmcp logout` | Deletes the stored cookie. Your LinkedIn session in the browser stays signed in. |
+| `linksmcp logout` | Deletes the stored cookies. Your LinkedIn session in the browser stays signed in. |
 
 Environment variables:
 
 | Variable | What it does |
 | --- | --- |
 | `LINKSMCP_HOME` | Moves the data folder. Default `~/.linksmcp`. |
-| `LINKSMCP_LI_AT` | Supplies the cookie without `linksmcp login`. |
+| `LINKSMCP_LI_AT` | Supplies the `li_at` cookie without `linksmcp login`. |
+| `LINKSMCP_USER_AGENT` | The user agent string of the browser the cookies came from. |
 | `LINKSMCP_TZ` | Timezone for working hours and the daily counters, for example `Europe/Amsterdam`. Default is the machine's timezone. |
 | `LINKSMCP_SEARCH_QUERY_ID` | Overrides the LinkedIn search query id when LinkedIn changes it. |
 
@@ -122,7 +123,7 @@ linksmcp speaks door-contract 1.0: 19 tools, the 9 shared messaging tools plus 1
 | Group | Tool | What it does |
 | --- | --- | --- |
 | Account | `list_accounts` | Lists the connected LinkedIn account and the channels this server supports (one: LinkedIn, one account). |
-| Account | `connect_linkedin` | Signs in with the cookies of your own LinkedIn browser session (`cookie_jar` and `country`, or `li_at` on your own machine). |
+| Account | `connect_linkedin` | Signs in with the cookies of your own LinkedIn browser session (`cookie_jar` and `country`, or `li_at` as a fallback on your own machine). |
 | Account | `get_linkedin_status` | Shows whether the account is connected, failed or disconnected, with today's limits. Takes `account_id`, which is `local` here. |
 | Account | `submit_linkedin_code` | Only on the hosted version, where LinkedIn may ask for a verification code. On your own machine it answers `invalid_request`. |
 | Account | `disconnect_linkedin` | Deletes the stored cookies for `account_id` `local`. LinkedIn itself is not signed out, and a running 48 hour pause stays in force. |
@@ -223,7 +224,7 @@ LinkedIn's User Agreement limits automated access, and you are the one bound by 
 
 ### Where is my LinkedIn cookie stored?
 
-In `~/.linksmcp/auth.json` with file mode 600, or in the folder set by `LINKSMCP_HOME`. If you use `LINKSMCP_LI_AT` it lives only in your environment. `linksmcp logout` deletes the file.
+The whole cookie export is stored in `~/.linksmcp/auth.json` with file mode 600, or in the folder set by `LINKSMCP_HOME`. Nothing else keeps a copy, so delete the export file once you have signed in. If you use `LINKSMCP_LI_AT` the cookie lives only in your environment. `linksmcp logout` deletes the file.
 
 ### Can linksmcp send bulk messages?
 
@@ -235,7 +236,7 @@ Not in version 0.1. A call with `media_url` or `media_path` returns `media_unava
 
 ### What happens when LinkedIn asks for a security check?
 
-linksmcp returns `security_challenge` and pauses all writes for 48 hours, while reading the inbox keeps working. Open LinkedIn in your browser and finish the check. If LinkedIn signed you out, copy the new `li_at` cookie (or export the cookies again) and run `npx linksmcp login` again.
+linksmcp returns `security_challenge` and pauses all writes for 48 hours, while reading the inbox keeps working. Open LinkedIn in your browser and finish the check. Then export the cookies again and run `npx linksmcp login --cookie-jar cookies.json` again, so linksmcp uses the session that passed the check.
 
 ### Can I change the daily limits?
 

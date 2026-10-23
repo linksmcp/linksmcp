@@ -1,5 +1,5 @@
 import type { Logger } from 'pino';
-import { cleanCookie, deleteAuth, loadAuth, saveAuth, type Auth } from './auth.js';
+import { cleanCookie, deleteAuth, isLinkedInCookie, loadAuth, saveAuth, withSessionCookies, type Auth, type Cookie } from './auth.js';
 import type { Config } from './config.js';
 import { fetchJsessionid, LinkedInClient, type FetchLike } from './linkedin/client.js';
 import { getDistance, getMe, getProfile } from './linkedin/profile.js';
@@ -38,13 +38,15 @@ export interface ConnectInput {
   li_at?: string;
   jsessionid?: string;
   country?: string;
+  /** User agent of the browser the cookies came from (CLI --user-agent; no tool field). */
+  user_agent?: string;
 }
 
 /**
- * Reads li_at and JSESSIONID from a cookie export: an array of {name, value, domain, ...}, an object
- * with a cookies array, or either as a JSON string. Cookies for other sites are ignored.
+ * Reads a cookie export: an array of {name, value, domain, ...}, an object with a cookies array, or
+ * either as a JSON string. Keeps every linkedin.com cookie; cookies for other sites are dropped.
  */
-export function cookiesFromJar(jar: unknown): { liAt: string | null; jsessionid: string | null } {
+export function cookiesFromJar(jar: unknown): { liAt: string | null; jsessionid: string | null; cookies: Cookie[] } {
   let v = jar;
   if (typeof v === 'string') {
     try {
@@ -55,16 +57,19 @@ export function cookiesFromJar(jar: unknown): { liAt: string | null; jsessionid:
   }
   if (v && typeof v === 'object' && !Array.isArray(v) && Array.isArray((v as { cookies?: unknown }).cookies)) v = (v as { cookies: unknown[] }).cookies;
   if (!Array.isArray(v)) throw new ToolError('invalid_request', 'cookie_jar must be an array of cookies ({name, value, domain}) or that array as a JSON string.');
-  const onLinkedIn = (d: unknown) => typeof d !== 'string' || d === '' || /(^|\.)linkedin\.com$/i.test(d.replace(/^\./, '').trim());
-  const find = (name: string): string | null => {
-    for (const c of v as unknown[]) {
-      if (!c || typeof c !== 'object') continue;
-      const o = c as Record<string, unknown>;
-      if (o.name === name && typeof o.value === 'string' && o.value.trim() && onLinkedIn(o.domain)) return cleanCookie(o.value, name);
-    }
-    return null;
-  };
-  return { liAt: find('li_at'), jsessionid: find('JSESSIONID') };
+  const cookies: Cookie[] = [];
+  for (const c of v as unknown[]) {
+    if (!c || typeof c !== 'object') continue;
+    const o = c as Record<string, unknown>;
+    if (typeof o.name !== 'string' || !o.name || typeof o.value !== 'string' || !isLinkedInCookie(o.domain)) continue;
+    const k: Cookie = { name: o.name, value: o.name === 'li_at' || o.name === 'JSESSIONID' ? cleanCookie(o.value, o.name) : o.value };
+    if (typeof o.domain === 'string' && o.domain) k.domain = o.domain;
+    if (typeof o.path === 'string' && o.path) k.path = o.path;
+    cookies.push(k);
+  }
+  const liAt = cookies.find((c) => c.name === 'li_at' && c.value)?.value ?? null;
+  const jsessionid = cookies.find((c) => c.name === 'JSESSIONID' && c.value)?.value ?? null;
+  return { liAt, jsessionid, cookies };
 }
 
 const NO_ACCOUNT_HINT = 'No LinkedIn session is stored. Call connect_linkedin with the li_at cookie from your browser, or run "linksmcp login".';
@@ -114,11 +119,11 @@ export class Door {
     let jsessionid = auth.jsessionid;
     if (!jsessionid && this.envJsession?.liAt === auth.li_at) jsessionid = this.envJsession.id;
     if (!jsessionid) {
-      jsessionid = await this.guard(() => fetchJsessionid(auth.li_at, this.fetch));
+      jsessionid = await this.guard(() => fetchJsessionid(auth.li_at, this.fetch, { cookies: auth.cookies, userAgent: auth.user_agent }));
       if (this.fromEnv()) this.envJsession = { liAt: auth.li_at, id: jsessionid };
       else saveAuth(this.paths.auth, { ...auth, jsessionid });
     }
-    const c = new LinkedInClient({ liAt: auth.li_at, jsessionid }, this.fetch);
+    const c = new LinkedInClient({ liAt: auth.li_at, jsessionid, cookies: withSessionCookies(auth.cookies, auth.li_at, jsessionid), userAgent: auth.user_agent }, this.fetch);
     this.cachedClient = c;
     if (!this.store.account().urn_id) await this.refreshMe(c);
     return c;
@@ -165,20 +170,25 @@ export class Door {
   async connect(input: ConnectInput): Promise<WireLinkedinStatus> {
     let liAt = typeof input.li_at === 'string' ? cleanCookie(input.li_at, 'li_at') : '';
     let jsessionid = typeof input.jsessionid === 'string' ? cleanCookie(input.jsessionid, 'JSESSIONID') : '';
+    let cookies: Cookie[] = [];
     if (input.cookie_jar !== undefined && input.cookie_jar !== null && input.cookie_jar !== '') {
       const jar = cookiesFromJar(input.cookie_jar);
       if (!jar.liAt && !liAt) throw new ToolError('invalid_request', 'cookie_jar has no li_at cookie for linkedin.com. Export the cookies while signed in to linkedin.com.');
       liAt = liAt || jar.liAt || '';
       jsessionid = jsessionid || jar.jsessionid || '';
+      cookies = jar.cookies;
     }
+    const userAgent = (input.user_agent && input.user_agent.trim()) || (this.env.LINKSMCP_USER_AGENT && this.env.LINKSMCP_USER_AGENT.trim()) || undefined;
     if (!liAt) throw new ToolError('invalid_request', 'Pass cookie_jar (your linkedin.com cookie export) or li_at.');
     const country = typeof input.country === 'string' && input.country.trim() ? input.country.trim().toUpperCase() : null;
     try {
-      if (!jsessionid) jsessionid = await fetchJsessionid(liAt, this.fetch);
-      const c = new LinkedInClient({ liAt, jsessionid }, this.fetch);
+      // Only a jar without JSESSIONID (or a lone li_at) needs one fetched.
+      if (!jsessionid) jsessionid = await fetchJsessionid(liAt, this.fetch, { cookies, userAgent });
+      const session = { liAt, jsessionid, cookies: withSessionCookies(cookies, liAt, jsessionid), userAgent };
+      const c = new LinkedInClient(session, this.fetch);
       const me = await getMe(c);
       if (!me.urn_id && !me.linkedin_username) throw new ToolError('session_expired', 'LinkedIn did not return your profile for these cookies. Sign in to linkedin.com again and export fresh cookies.');
-      saveAuth(this.paths.auth, { li_at: liAt, jsessionid });
+      saveAuth(this.paths.auth, { li_at: liAt, jsessionid, cookies: session.cookies, user_agent: input.user_agent?.trim() || undefined });
       this.cachedClient = c;
       this.store.updateAccount({
         status: 'connected',

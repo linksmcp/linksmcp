@@ -1,13 +1,13 @@
 # linksmcp
 
-> linksmcp is a free, MIT licensed LinkedIn MCP server you run on your own machine. It gives Claude, Cursor and any MCP client tools to read your LinkedIn inbox, reply, look up profiles, search people and send connection requests, signed in with your own LinkedIn session cookie (li_at). It runs over stdio, stores the messages it has seen in a local SQLite file and sends nothing anywhere except LinkedIn: no account, no telemetry, no update check. Daily limits, working hours, pacing and pauses are enforced on your machine before every write.
+> linksmcp is a free, MIT licensed LinkedIn MCP server you run on your own machine. It gives Claude, Cursor and any MCP client tools to read your LinkedIn inbox, reply, look up profiles, search people and send connection requests, signed in with the cookies of your own LinkedIn browser session. It runs over stdio, stores the messages it has seen in a local SQLite file and sends nothing anywhere except LinkedIn: no account, no telemetry, no update check. Daily limits, working hours, pacing and pauses are enforced on your machine before every write.
 
-Install: `npx linksmcp` (npm package `linksmcp`, Node.js 20 or newer). Sign in once with `npx linksmcp login`, or `npx linksmcp login --cookie-jar cookies.json` with a cookie export file. Docker: `docker run -i -v ~/.linksmcp:/data ghcr.io/linksmcp/linksmcp`.
+Install: `npx linksmcp` (npm package `linksmcp`, Node.js 20 or newer). Sign in once with a JSON cookie export of your signed in browser: `npx linksmcp login --cookie-jar cookies.json --user-agent "<your browser's user agent>"`. Only the li_at cookie also works (`npx linksmcp login`), but LinkedIn signs it out sooner. Docker: `docker run -i -v ~/.linksmcp:/data ghcr.io/linksmcp/linksmcp`.
 
 ## Tools (door-contract 1.0, 19 tools)
 
 - list_accounts: list the connected LinkedIn account
-- connect_linkedin: sign in with the cookies of your own browser session (cookie_jar and country, or li_at on your own machine)
+- connect_linkedin: sign in with the cookies of your own browser session (cookie_jar and country, or li_at as a fallback on your own machine)
 - get_linkedin_status: status of account "local": connected, failed or disconnected, with limits
 - submit_linkedin_code: hosted version only; on your own machine it answers invalid_request
 - disconnect_linkedin: delete the stored cookies
