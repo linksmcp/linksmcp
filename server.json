@@ -1,0 +1,48 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.linksmcp/linksmcp",
+  "description": "LinkedIn MCP server you run yourself: inbox, profiles, search, invites, with your own cookie.",
+  "repository": {
+    "url": "https://github.com/linksmcp/linksmcp",
+    "source": "github"
+  },
+  "version": "0.1.0",
+  "packages": [
+    {
+      "registryType": "npm",
+      "registryBaseUrl": "https://registry.npmjs.org",
+      "identifier": "linksmcp",
+      "version": "0.1.0",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "LINKSMCP_LI_AT",
+          "description": "Your LinkedIn li_at session cookie. Optional when you ran linksmcp login.",
+          "isRequired": false,
+          "isSecret": true,
+          "format": "string"
+        }
+      ]
+    },
+    {
+      "registryType": "oci",
+      "registryBaseUrl": "https://ghcr.io",
+      "identifier": "ghcr.io/linksmcp/linksmcp:0.1.0",
+      "version": "0.1.0",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "LINKSMCP_LI_AT",
+          "description": "Your LinkedIn li_at session cookie. Optional when /data holds a saved login.",
+          "isRequired": false,
+          "isSecret": true,
+          "format": "string"
+        }
+      ]
+    }
+  ]
+}

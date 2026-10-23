@@ -1,0 +1,9 @@
+node_modules/
+dist/
+*.db
+*.db-*
+.env
+*.tgz
+.DS_Store
+coverage/
+.linksmcp/

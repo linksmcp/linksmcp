@@ -1,0 +1,55 @@
+# linksmcp
+
+> linksmcp is a free, MIT licensed LinkedIn MCP server you run on your own machine. It gives Claude, Cursor and any MCP client tools to read your LinkedIn inbox, reply, look up profiles, search people and send connection requests, signed in with your own LinkedIn session cookie (li_at). It runs over stdio, stores the messages it has seen in a local SQLite file and sends nothing anywhere except LinkedIn: no account, no telemetry, no update check. Daily limits, working hours, pacing and pauses are enforced on your machine before every write.
+
+Install: `npx linksmcp` (npm package `linksmcp`, Node.js 20 or newer). Sign in once with `npx linksmcp login`. Docker: `docker run -i -v ~/.linksmcp:/data ghcr.io/linksmcp/linksmcp`.
+
+## Tools (door-contract 1.0)
+
+- list_accounts: list the connected LinkedIn account
+- connect_linkedin: sign in with the li_at cookie of your own session
+- get_linkedin_status: connection status of the account
+- disconnect_linkedin: forget the stored cookie
+- get_my_profile: read your own profile
+- get_person_profile: read one profile (counts as a profile view)
+- search_people: find people by keywords, location, current company (counts as a search)
+- connect_with_person: send a connection request with an optional note without links
+- list_invitations: list sent or received invitations
+- accept_invitation: accept a received invitation
+- list_chats: list LinkedIn threads, most recent first
+- list_messages: read a thread, or list stored messages
+- get_message: get one stored message
+- send_message: send one message to one recipient (new threads only with first degree connections)
+- wait_for_messages: wait for new inbound messages
+- search_messages: full text search over stored messages
+- mark_read: mark a thread read
+- get_usage: today's counts against each limit
+
+## Default limits (editable in ~/.linksmcp/config.json)
+
+- caps.messages: 100 per day
+- caps.new_threads: 50 per day
+- caps.invitations: 20 per day
+- caps.profile_views: 250 per day
+- caps.searches: 30 per day
+- caps.accepts: 20 per day
+- working_hours: 08:00 to 20:00 local time
+- 20 to 60 seconds between writes, 5 to 8 minutes between connection requests
+- 48 hour write pause after a LinkedIn security check or restriction
+- Waits of 45 seconds or less happen inside the call; longer waits return rate_limited with retry_after_s
+
+## Hosted version
+
+The same tool names work on the hosted version at https://linksmcp.com.
+
+## Docs
+
+- [Install](README.md#install)
+- [Sign in](README.md#sign-in)
+- [Tools](README.md#tools)
+- [Limits](README.md#limits)
+- [What is a LinkedIn MCP server?](README.md#what-is-a-linkedin-mcp-server)
+- [Self hosted or hosted](README.md#self-hosted-or-hosted)
+- [FAQ](README.md#faq)
+- [Errors](README.md#errors)
+- [Contract](contract/door-contract.json)

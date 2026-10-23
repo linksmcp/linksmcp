@@ -1,0 +1,117 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      has_npm_token: ${{ steps.npm.outputs.has_npm_token }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - id: version
+        name: Check the tag matches package.json and server.json
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          pkg="$(node -p "require('./package.json').version")"
+          srv="$(node -p "require('./server.json').version")"
+          if [ "$tag" != "$pkg" ] || [ "$tag" != "$srv" ]; then
+            echo "Tag $tag does not match package.json $pkg or server.json $srv"
+            exit 1
+          fi
+          echo "version=$tag" >> "$GITHUB_OUTPUT"
+      - id: npm
+        name: Check for the npm token
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          if [ -n "$NPM_TOKEN" ]; then
+            echo "has_npm_token=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_npm_token=false" >> "$GITHUB_OUTPUT"
+            echo "NPM_TOKEN is not set: npm publish will be skipped and the registry entry will be OCI only."
+          fi
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run lint
+      - run: npm run build
+
+  docker:
+    needs: verify
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ghcr.io/linksmcp/linksmcp:${{ needs.verify.outputs.version }}
+            ghcr.io/linksmcp/linksmcp:latest
+
+  npm:
+    needs: verify
+    if: needs.verify.outputs.has_npm_token == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          registry-url: https://registry.npmjs.org
+      - run: npm ci
+      - run: npm run build
+      - run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+  registry:
+    needs: [verify, docker, npm]
+    if: always() && needs.verify.result == 'success' && needs.docker.result == 'success' && (needs.npm.result == 'success' || needs.npm.result == 'skipped')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Keep only the OCI package when npm was skipped
+        if: needs.verify.outputs.has_npm_token != 'true'
+        run: node -e "const f='server.json',fs=require('fs'),s=JSON.parse(fs.readFileSync(f,'utf8'));s.packages=s.packages.filter(p=>p.registryType!=='npm');fs.writeFileSync(f,JSON.stringify(s,null,2)+'\n')"
+      - name: Install mcp-publisher
+        run: |
+          curl -fsSL "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_linux_amd64.tar.gz" | tar xz mcp-publisher
+          ./mcp-publisher --help > /dev/null
+      - name: Log in to the MCP registry
+        run: ./mcp-publisher login github-oidc
+      - name: Publish to the MCP registry
+        run: ./mcp-publisher publish

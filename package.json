@@ -1,0 +1,64 @@
+{
+  "name": "linksmcp",
+  "version": "0.1.0",
+  "description": "Open source LinkedIn MCP server. Connect your own LinkedIn account to Claude and other AI assistants. Runs on your machine.",
+  "type": "module",
+  "license": "MIT",
+  "mcpName": "io.github.linksmcp/linksmcp",
+  "bin": {
+    "linksmcp": "dist/cli.js"
+  },
+  "main": "dist/server.js",
+  "files": [
+    "dist/**/*.js",
+    "README.md",
+    "LICENSE",
+    "SECURITY.md",
+    "server.json",
+    "contract/door-contract.json"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/linksmcp/linksmcp.git"
+  },
+  "homepage": "https://linksmcp.com",
+  "bugs": {
+    "url": "https://github.com/linksmcp/linksmcp/issues"
+  },
+  "keywords": [
+    "linkedin",
+    "mcp",
+    "model-context-protocol",
+    "mcp-server",
+    "linkedin-mcp",
+    "claude",
+    "claude-desktop",
+    "claude-code",
+    "cursor",
+    "ai-assistant",
+    "self-hosted"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json && node scripts/postbuild.mjs",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run --no-file-parallelism",
+    "start": "node dist/cli.js",
+    "lint": "node scripts/leak-check.mjs",
+    "prepublishOnly": "npm run lint && npm run build"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.32.2",
+    "better-sqlite3": "12.11.1",
+    "pino": "9.14.0",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "7.6.13",
+    "@types/node": "20.19.43",
+    "typescript": "5.9.3",
+    "vitest": "4.1.12"
+  }
+}
