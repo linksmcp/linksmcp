@@ -94,7 +94,9 @@ jobs:
 
   registry:
     needs: [verify, docker, npm]
-    if: always() && needs.verify.result == 'success' && needs.docker.result == 'success' && (needs.npm.result == 'success' || needs.npm.result == 'skipped')
+    # The registry entry is published together with the npm package: the registry only accepts
+    # public images and published npm versions, so without NPM_TOKEN this job is skipped, not failed.
+    if: needs.verify.result == 'success' && needs.docker.result == 'success' && needs.npm.result == 'success'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -104,9 +106,6 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-      - name: Keep only the OCI package when npm was skipped
-        if: needs.verify.outputs.has_npm_token != 'true'
-        run: node -e "const f='server.json',fs=require('fs'),s=JSON.parse(fs.readFileSync(f,'utf8'));s.packages=s.packages.filter(p=>p.registryType!=='npm');fs.writeFileSync(f,JSON.stringify(s,null,2)+'\n')"
       - name: Install mcp-publisher
         run: |
           curl -fsSL "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_linux_amd64.tar.gz" | tar xz mcp-publisher
