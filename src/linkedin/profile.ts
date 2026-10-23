@@ -22,7 +22,7 @@ export interface Education {
 
 export interface PersonProfile {
   linkedin_username: string;
-  profile_url: string;
+  linkedin_url: string;
   name: string | null;
   headline: string | null;
   location: string | null;
@@ -97,7 +97,7 @@ export function parseProfileView(json: unknown, requested: string): PersonProfil
   );
   return {
     linkedin_username: username,
-    profile_url: profileUrlFor(username),
+    linkedin_url: profileUrlFor(username),
     name: fullName(profile.firstName ?? mini.firstName, profile.lastName ?? mini.lastName) ?? null,
     headline: str(profile.headline) ?? str(mini.occupation) ?? null,
     location: str(profile.geoLocationName) ?? str(profile.locationName) ?? null,

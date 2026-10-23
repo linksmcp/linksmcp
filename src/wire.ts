@@ -7,7 +7,7 @@ export interface WireContact {
   id: string;
   name?: string;
   linkedin_username?: string;
-  profile_url?: string;
+  linkedin_url: string | null;
 }
 
 export interface WireMessage {
@@ -16,9 +16,10 @@ export interface WireMessage {
   channel: string;
   direction: 'inbound' | 'outbound';
   text: string;
-  media?: { url?: string; content_type: string };
+  media: { url?: string; content_type: string } | null;
   status: string;
-  error?: { code: string; message: string };
+  /** code is the platform's error number; 0 when LinkedIn gave none. */
+  error: { code: number; message: string } | null;
   timestamp: string;
   contact: WireContact;
   chat_id: string;
@@ -42,8 +43,22 @@ export interface WireAccount {
   hint?: string;
 }
 
+/** The hosted LinkedIn lane's status object (connect_linkedin, get_linkedin_status). */
+export interface WireLinkedinStatus {
+  account_id: string;
+  status: 'connecting' | 'code_required' | 'connected' | 'failed' | 'disconnected';
+  step: string | null;
+  error: string | null;
+  profile_name: string | null;
+  profile_url: string | null;
+  /** Self-hosted additions on get_linkedin_status. */
+  limits?: WireAccount['limits'];
+  hint?: string;
+}
+
 export interface WireChat {
   chat_id: string;
+  channel: string;
   name: string | null;
   type: 'user' | 'group' | 'channel';
   unread_count: number;

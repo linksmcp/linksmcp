@@ -19,7 +19,7 @@ import {
   type WriteRequest,
 } from './safety.js';
 import type { ChatRow, ContactRow, MessageRow, Store } from './store.js';
-import { ACCOUNT_ID, CHANNEL, CONTRACT_VERSION, profileUrlFor, ToolError, type WireAccount, type WireChat, type WireMessage } from './wire.js';
+import { ACCOUNT_ID, CHANNEL, CONTRACT_VERSION, profileUrlFor, ToolError, type WireAccount, type WireChat, type WireLinkedinStatus, type WireMessage } from './wire.js';
 
 export interface DoorDeps {
   store: Store;
@@ -31,6 +31,40 @@ export interface DoorDeps {
   random?: () => number;
   env?: NodeJS.ProcessEnv;
   log?: Logger;
+}
+
+export interface ConnectInput {
+  cookie_jar?: unknown;
+  li_at?: string;
+  jsessionid?: string;
+  country?: string;
+}
+
+/**
+ * Reads li_at and JSESSIONID from a cookie export: an array of {name, value, domain, ...}, an object
+ * with a cookies array, or either as a JSON string. Cookies for other sites are ignored.
+ */
+export function cookiesFromJar(jar: unknown): { liAt: string | null; jsessionid: string | null } {
+  let v = jar;
+  if (typeof v === 'string') {
+    try {
+      v = JSON.parse(v);
+    } catch {
+      throw new ToolError('invalid_request', 'cookie_jar is not valid JSON. Pass the cookie export as it was saved (an array of {name, value, domain}).');
+    }
+  }
+  if (v && typeof v === 'object' && !Array.isArray(v) && Array.isArray((v as { cookies?: unknown }).cookies)) v = (v as { cookies: unknown[] }).cookies;
+  if (!Array.isArray(v)) throw new ToolError('invalid_request', 'cookie_jar must be an array of cookies ({name, value, domain}) or that array as a JSON string.');
+  const onLinkedIn = (d: unknown) => typeof d !== 'string' || d === '' || /(^|\.)linkedin\.com$/i.test(d.replace(/^\./, '').trim());
+  const find = (name: string): string | null => {
+    for (const c of v as unknown[]) {
+      if (!c || typeof c !== 'object') continue;
+      const o = c as Record<string, unknown>;
+      if (o.name === name && typeof o.value === 'string' && o.value.trim() && onLinkedIn(o.domain)) return cleanCookie(o.value, name);
+    }
+    return null;
+  };
+  return { liAt: find('li_at'), jsessionid: find('JSESSIONID') };
 }
 
 const NO_ACCOUNT_HINT = 'No LinkedIn session is stored. Call connect_linkedin with the li_at cookie from your browser, or run "linksmcp login".';
@@ -45,7 +79,7 @@ export class Door {
   readonly sleep: (ms: number) => Promise<void>;
   readonly random: () => number;
   private readonly env: NodeJS.ProcessEnv;
-  private readonly log?: Logger;
+  readonly log?: Logger;
   private cachedClient: LinkedInClient | null = null;
   /** JSESSIONID fetched for an env-provided cookie; kept in memory only. */
   private envJsession: { liAt: string; id: string } | null = null;
@@ -124,19 +158,74 @@ export class Door {
     }
   }
 
-  /** Validates a cookie with /me and stores it. Nothing is stored when LinkedIn refuses it. */
-  async connect(liAtRaw: string, jsessionRaw?: string): Promise<WireAccount> {
-    const liAt = cleanCookie(liAtRaw, 'li_at');
-    if (!liAt) throw new ToolError('no_connected_account', 'li_at is empty. Copy the value of the li_at cookie from linkedin.com in your browser.');
-    let jsessionid = jsessionRaw ? cleanCookie(jsessionRaw, 'JSESSIONID') : '';
-    if (!jsessionid) jsessionid = await fetchJsessionid(liAt, this.fetch);
-    const c = new LinkedInClient({ liAt, jsessionid }, this.fetch);
-    const me = await getMe(c);
-    if (!me.urn_id && !me.linkedin_username) throw new ToolError('session_expired', 'LinkedIn did not return your profile for this cookie. Copy a fresh li_at cookie and try again.');
-    saveAuth(this.paths.auth, { li_at: liAt, jsessionid });
-    this.cachedClient = c;
-    this.store.updateAccount({ status: 'connected', identifier: me.linkedin_username, urn_id: me.urn_id, name: me.name, connected_at: this.now().getTime() });
-    return this.wireAccount();
+  /**
+   * Checks the cookies with /me and stores them. A cookie LinkedIn refuses is a "failed" status with
+   * the reason (nothing stored); a request without any li_at is refused with invalid_request.
+   */
+  async connect(input: ConnectInput): Promise<WireLinkedinStatus> {
+    let liAt = typeof input.li_at === 'string' ? cleanCookie(input.li_at, 'li_at') : '';
+    let jsessionid = typeof input.jsessionid === 'string' ? cleanCookie(input.jsessionid, 'JSESSIONID') : '';
+    if (input.cookie_jar !== undefined && input.cookie_jar !== null && input.cookie_jar !== '') {
+      const jar = cookiesFromJar(input.cookie_jar);
+      if (!jar.liAt && !liAt) throw new ToolError('invalid_request', 'cookie_jar has no li_at cookie for linkedin.com. Export the cookies while signed in to linkedin.com.');
+      liAt = liAt || jar.liAt || '';
+      jsessionid = jsessionid || jar.jsessionid || '';
+    }
+    if (!liAt) throw new ToolError('invalid_request', 'Pass cookie_jar (your linkedin.com cookie export) or li_at.');
+    const country = typeof input.country === 'string' && input.country.trim() ? input.country.trim().toUpperCase() : null;
+    try {
+      if (!jsessionid) jsessionid = await fetchJsessionid(liAt, this.fetch);
+      const c = new LinkedInClient({ liAt, jsessionid }, this.fetch);
+      const me = await getMe(c);
+      if (!me.urn_id && !me.linkedin_username) throw new ToolError('session_expired', 'LinkedIn did not return your profile for these cookies. Sign in to linkedin.com again and export fresh cookies.');
+      saveAuth(this.paths.auth, { li_at: liAt, jsessionid });
+      this.cachedClient = c;
+      this.store.updateAccount({
+        status: 'connected',
+        identifier: me.linkedin_username,
+        urn_id: me.urn_id,
+        name: me.name,
+        connected_at: this.now().getTime(),
+        ...(country ? { country } : {}),
+      });
+    } catch (err) {
+      return {
+        account_id: ACCOUNT_ID,
+        status: 'failed',
+        step: null,
+        error: err instanceof ToolError ? err.message : `Could not check the cookies: ${(err as Error).message}`,
+        profile_name: null,
+        profile_url: null,
+      };
+    }
+    return this.linkedinStatus(false);
+  }
+
+  /** The hosted lane's status object; with extras = true it adds limits and hint (get_linkedin_status). */
+  linkedinStatus(extras = true): WireLinkedinStatus {
+    const a = this.store.account();
+    const acc = this.wireAccount();
+    const hasAuth = !!this.auth();
+    let status: WireLinkedinStatus['status'] = 'connected';
+    let error: string | null = null;
+    if (!hasAuth) status = 'disconnected';
+    else if (a.status === 'session_expired') {
+      status = 'failed';
+      error = 'LinkedIn no longer accepts the stored cookies. Sign in to linkedin.com and connect again with fresh cookies.';
+    }
+    const out: WireLinkedinStatus = {
+      account_id: ACCOUNT_ID,
+      status,
+      step: null,
+      error,
+      profile_name: hasAuth ? a.name : null,
+      profile_url: hasAuth && a.identifier ? profileUrlFor(a.identifier) : null,
+    };
+    if (extras) {
+      out.limits = acc.limits;
+      if (acc.hint) out.hint = acc.hint;
+    }
+    return out;
   }
 
   /** Forgets the stored cookie. The 48 h pause, if any, stays in force. */
@@ -214,6 +303,9 @@ export class Door {
     let next = s.nextWriteAt && s.nextWriteAt > now ? s.nextWriteAt : now;
     if (s.restrictedUntil && s.restrictedUntil > next) next = s.restrictedUntil;
     if (!hours.open && hours.nextStart && hours.nextStart > next) next = hours.nextStart;
+    const hasAuth = !!this.auth();
+    const restricted = !!(s.restrictedUntil && s.restrictedUntil > now);
+    const suspendedReason = s.sessionExpired ? 'session_expired' : restricted ? (s.restrictedReason ?? 'security_challenge') : null;
     return {
       plan: 'self-hosted',
       day: this.today(),
@@ -221,6 +313,11 @@ export class Door {
       sends_cap: cfg.caps.messages,
       new_contacts: c.new_thread,
       new_contacts_cap: cfg.caps.new_threads,
+      status: suspendedReason ? 'suspended' : 'active',
+      ...(suspendedReason ? { suspended_reason: suspendedReason } : {}),
+      accounts_total: hasAuth ? 1 : 0,
+      accounts_connected: hasAuth && !s.sessionExpired ? 1 : 0,
+      accounts_cap: 1,
       ramp_day: null,
       contract_version: CONTRACT_VERSION,
       linkedin: {
@@ -377,13 +474,13 @@ export class Door {
 
   toWireMessage(m: MessageRow): WireMessage {
     const chat = this.store.getChat(m.chat_id);
-    const contact: WireMessage['contact'] = { id: m.chat_id };
+    const contact: WireMessage['contact'] = { id: m.chat_id, linkedin_url: null };
     const username = m.direction === 'inbound' ? m.sender_username : chat?.participant_username;
     const name = m.direction === 'inbound' ? m.sender_name : (chat?.participant_name ?? chat?.name);
     if (name) contact.name = name;
     if (username) {
       contact.linkedin_username = username;
-      contact.profile_url = profileUrlFor(username);
+      contact.linkedin_url = profileUrlFor(username);
     }
     const w: WireMessage = {
       id: m.id,
@@ -395,14 +492,17 @@ export class Door {
       timestamp: new Date(m.ts).toISOString(),
       contact,
       chat_id: m.chat_id,
+      media: null,
+      error: null,
     };
-    if (m.status === 'failed') w.error = { code: 'send_failed', message: 'LinkedIn did not accept this message.' };
+    if (m.status === 'failed') w.error = { code: 0, message: 'LinkedIn did not accept this message.' };
     return w;
   }
 
   toWireChat(c: ChatRow): WireChat {
     return {
       chat_id: c.id,
+      channel: CHANNEL,
       name: c.name ?? c.participant_name ?? null,
       type: c.type === 'group' ? 'group' : 'user',
       unread_count: c.unread_count,
@@ -412,7 +512,7 @@ export class Door {
 
   checkAccountId(id: unknown): void {
     if (id !== undefined && id !== ACCOUNT_ID) {
-      throw new ToolError('no_connected_account', `Unknown account_id "${String(id)}". This server has one account: "${ACCOUNT_ID}".`);
+      throw new ToolError('account_not_found', `Unknown account_id "${String(id)}". This server has one account: "${ACCOUNT_ID}".`);
     }
   }
 }

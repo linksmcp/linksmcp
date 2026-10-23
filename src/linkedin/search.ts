@@ -5,7 +5,7 @@ import { profileUrlFor } from '../wire.js';
 
 export interface PersonHit {
   linkedin_username: string;
-  profile_url: string;
+  linkedin_url: string;
   name: string | null;
   headline: string | null;
   location: string | null;
@@ -72,7 +72,7 @@ export function parseSearch(json: unknown): PersonHit[] {
     seen.add(username);
     people.push({
       linkedin_username: username,
-      profile_url: profileUrlFor(username),
+      linkedin_url: profileUrlFor(username),
       name: textOf(r.title) ?? null,
       headline: textOf(r.primarySubtitle) ?? null,
       location: textOf(r.secondarySubtitle) ?? null,

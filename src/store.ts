@@ -49,6 +49,7 @@ export interface AccountRow {
   connected_at: number | null;
   next_write_at: number | null;
   next_invite_at: number | null;
+  country: string | null;
 }
 
 export interface InvitationRow {
@@ -139,14 +140,14 @@ export interface Cursor {
 
 /** Opaque cursor strings: base64url JSON. Bad input reads as null. */
 export function encodeCursor(c: Cursor): string {
-  return Buffer.from(JSON.stringify(c)).toString('base64url');
+  return Buffer.from(JSON.stringify({ v: 1, seq: c.seq, ts: c.ts })).toString('base64url');
 }
 
 export function decodeCursor(s: string | undefined): Cursor | null {
   if (!s) return null;
   try {
     const o = JSON.parse(Buffer.from(s, 'base64url').toString('utf8'));
-    if (typeof o.seq === 'number' && typeof o.ts === 'number') return { seq: o.seq, ts: o.ts };
+    if (o && o.v === 1 && Number.isInteger(o.seq) && Number.isInteger(o.ts)) return { seq: o.seq, ts: o.ts };
   } catch {
     // fall through
   }
@@ -179,6 +180,8 @@ export class Store {
     this.db.pragma('journal_mode = WAL');
     this.db.pragma('foreign_keys = ON');
     this.db.exec(SCHEMA);
+    const cols = (this.db.prepare('PRAGMA table_info(account)').all() as { name: string }[]).map((c) => c.name);
+    if (!cols.includes('country')) this.db.exec('ALTER TABLE account ADD COLUMN country TEXT');
   }
 
   close(): void {
@@ -351,7 +354,7 @@ export class Store {
   // ---------- account ----------
 
   account(): AccountRow {
-    return this.db.prepare('SELECT status, restricted_until, restricted_reason, identifier, urn_id, name, connected_at, next_write_at, next_invite_at FROM account WHERE k = 1').get() as AccountRow;
+    return this.db.prepare('SELECT status, restricted_until, restricted_reason, identifier, urn_id, name, connected_at, next_write_at, next_invite_at, country FROM account WHERE k = 1').get() as AccountRow;
   }
 
   updateAccount(patch: Partial<AccountRow>): void {

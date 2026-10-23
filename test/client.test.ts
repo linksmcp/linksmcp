@@ -103,7 +103,7 @@ describe('parsers', () => {
     const p = parseProfileView(fx.profileView(fx.people.jane), 'jane-doe');
     expect(p).toMatchObject({
       linkedin_username: 'jane-doe',
-      profile_url: 'https://www.linkedin.com/in/jane-doe/',
+      linkedin_url: 'https://www.linkedin.com/in/jane-doe/',
       name: 'Jane Doe',
       headline: 'Head of Sales at Acme',
       location: 'Amsterdam, North Holland',
@@ -134,13 +134,13 @@ describe('parsers', () => {
 
   it('search, normalized shape: skips members without a public profile', () => {
     expect(parseSearch(fx.search)).toEqual([
-      { linkedin_username: 'jane-doe', profile_url: 'https://www.linkedin.com/in/jane-doe/', name: 'Jane Doe', headline: 'Head of Sales at Acme', location: 'Amsterdam' },
-      { linkedin_username: 'bob-lee', profile_url: 'https://www.linkedin.com/in/bob-lee/', name: 'Bob Lee', headline: 'CTO', location: null },
+      { linkedin_username: 'jane-doe', linkedin_url: 'https://www.linkedin.com/in/jane-doe/', name: 'Jane Doe', headline: 'Head of Sales at Acme', location: 'Amsterdam' },
+      { linkedin_username: 'bob-lee', linkedin_url: 'https://www.linkedin.com/in/bob-lee/', name: 'Bob Lee', headline: 'CTO', location: null },
     ]);
   });
 
   it('search, plain nested shape', () => {
-    expect(parseSearch(fx.searchPlain)).toEqual([{ linkedin_username: 'carl-x', profile_url: 'https://www.linkedin.com/in/carl-x/', name: 'Carl Xu', headline: null, location: 'Berlin' }]);
+    expect(parseSearch(fx.searchPlain)).toEqual([{ linkedin_username: 'carl-x', linkedin_url: 'https://www.linkedin.com/in/carl-x/', name: 'Carl Xu', headline: null, location: 'Berlin' }]);
   });
 
   it('search query: rest.li escaping, id filters, text folded into keywords', () => {
@@ -180,7 +180,7 @@ describe('parsers', () => {
 
   it('invitationViews', () => {
     expect(parseInvitations(fx.invitationViews, 'received')).toEqual([
-      { id: '7001', direction: 'received', linkedin_username: 'carl-x', name: 'Carl Xu', sent_at: '2026-03-09T12:00:00.000Z', shared_secret: 'secret-7001', note: 'Hi Sam, met you at the meetup.' },
+      { id: '7001', direction: 'received', linkedin_username: 'carl-x', linkedin_url: 'https://www.linkedin.com/in/carl-x/', name: 'Carl Xu', sent_at: '2026-03-09T12:00:00.000Z', shared_secret: 'secret-7001', note: 'Hi Sam, met you at the meetup.' },
     ]);
   });
 
@@ -204,7 +204,7 @@ describe('recipients', () => {
   it('wants exactly one of username or URL', () => {
     expect(resolveUsername({ linkedin_username: 'jane-doe' })).toBe('jane-doe');
     expect(() => resolveUsername({})).toThrow(/exactly one/);
-    expect(() => resolveUsername({ linkedin_username: 'a', profile_url: 'b' })).toThrow(/exactly one/);
-    expect(() => resolveUsername({ profile_url: 'https://example.com/x' })).toThrow(/profile_url/);
+    expect(() => resolveUsername({ linkedin_username: 'a', linkedin_url: 'b' })).toThrow(/exactly one/);
+    expect(() => resolveUsername({ linkedin_url: 'https://example.com/x' })).toThrow(/linkedin_url/);
   });
 });

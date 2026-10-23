@@ -1,11 +1,13 @@
 import { LinkedInHttpError, type LinkedInClient } from './client.js';
 import { Graph, num, str, urnId, type Obj } from './normalize.js';
 import { memberOf } from './messaging.js';
+import { profileUrlFor } from '../wire.js';
 
 export interface Invitation {
   id: string;
   direction: 'sent' | 'received';
   linkedin_username: string | null;
+  linkedin_url: string | null;
   name: string | null;
   sent_at: string | null;
   note?: string;
@@ -30,6 +32,7 @@ export function parseInvitations(json: unknown, direction: 'sent' | 'received'):
       id,
       direction,
       linkedin_username: person?.linkedin_username ?? null,
+      linkedin_url: person?.linkedin_username ? profileUrlFor(person.linkedin_username) : null,
       name: person?.name ?? null,
       sent_at: sent ? new Date(sent).toISOString() : null,
       shared_secret: str(inv.sharedSecret) ?? null,

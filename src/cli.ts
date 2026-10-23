@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { readFileSync } from 'node:fs';
 import { openDoor } from './app.js';
 import { deleteAuth } from './auth.js';
 import { getMe } from './linkedin/profile.js';
@@ -13,6 +14,8 @@ Usage:
   linksmcp [serve]       Start the MCP server on stdio (what your AI app runs)
   linksmcp login         Store your li_at cookie (read from stdin, not echoed)
                          Options: --li-at <value>  --jsessionid <value>
+                                  --cookie-jar <file>  (a linkedin.com cookie export, JSON)
+                                  --country <XX>
   linksmcp status        Print the account status
   linksmcp doctor        Check the cookie with LinkedIn and print today's counts and limits
   linksmcp logout        Forget the stored cookie
@@ -102,19 +105,34 @@ async function main(): Promise<void> {
     }
     case 'login': {
       const door = openDoor();
-      const liAt = flag(args, '--li-at') ?? (await readSecret('Paste the value of your li_at cookie: '));
-      if (!liAt) fail(new ToolError('no_connected_account', 'No cookie given.'));
+      const jarFile = flag(args, '--cookie-jar');
+      let cookieJar: string | undefined;
+      let liAt: string | undefined;
+      if (jarFile) {
+        try {
+          cookieJar = readFileSync(jarFile, 'utf8');
+        } catch (err) {
+          fail(new ToolError('invalid_request', `Could not read ${jarFile}: ${(err as Error).message}`));
+        }
+      } else {
+        liAt = flag(args, '--li-at') ?? (await readSecret('Paste the value of your li_at cookie: '));
+        if (!liAt) fail(new ToolError('invalid_request', 'No cookie given.'));
+      }
       try {
-        const account = await door.connect(liAt, flag(args, '--jsessionid'));
-        process.stderr.write(`Signed in as ${account.identifier ?? 'your LinkedIn account'}. The cookie is stored in ${door.paths.auth}.\n`);
-        print(account);
+        const status = await door.connect({ cookie_jar: cookieJar, li_at: liAt, jsessionid: flag(args, '--jsessionid'), country: flag(args, '--country') });
+        print(status);
+        if (status.status !== 'connected') {
+          process.stderr.write(`Sign-in failed: ${status.error ?? 'unknown reason'}\n`);
+          process.exit(1);
+        }
+        process.stderr.write(`Signed in as ${status.profile_name ?? 'your LinkedIn account'}. The cookie is stored in ${door.paths.auth}.\n`);
       } catch (err) {
         fail(err);
       }
       return;
     }
     case 'status': {
-      print(openDoor().wireAccount());
+      print(openDoor().linkedinStatus(true));
       return;
     }
     case 'doctor': {
@@ -124,10 +142,10 @@ async function main(): Promise<void> {
         const me = await door.guard(async () => getMe(await door.client()));
         process.stderr.write(`Cookie OK: signed in as ${me.linkedin_username ?? me.name ?? 'unknown'}.\n`);
       } catch (err) {
-        print({ account: door.wireAccount(), usage: door.usage() });
+        print({ status: door.linkedinStatus(true), usage: door.usage() });
         fail(err);
       }
-      print({ account: door.wireAccount(), usage: door.usage(), data_dir: door.paths.home });
+      print({ status: door.linkedinStatus(true), usage: door.usage(), data_dir: door.paths.home });
       return;
     }
     case 'logout': {

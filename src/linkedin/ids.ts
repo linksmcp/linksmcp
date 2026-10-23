@@ -14,15 +14,15 @@ export function usernameFromUrl(url: string): string | null {
   }
 }
 
-/** Resolves {linkedin_username | profile_url} to a public id, or throws invalid_recipient. */
-export function resolveUsername(input: { linkedin_username?: string; profile_url?: string }): string {
-  const given = [input.linkedin_username, input.profile_url].filter((v) => typeof v === 'string' && v.trim() !== '');
+/** Resolves {linkedin_url | linkedin_username} to a public id, or throws invalid_recipient. */
+export function resolveUsername(input: { linkedin_username?: string; linkedin_url?: string }): string {
+  const given = [input.linkedin_username, input.linkedin_url].filter((v) => typeof v === 'string' && v.trim() !== '');
   if (given.length !== 1) {
-    throw new ToolError('invalid_recipient', 'Give exactly one of linkedin_username or profile_url.');
+    throw new ToolError('invalid_recipient', 'Give exactly one of linkedin_url or linkedin_username.');
   }
-  if (input.profile_url && input.profile_url.trim()) {
-    const u = usernameFromUrl(input.profile_url);
-    if (!u) throw new ToolError('invalid_recipient', 'profile_url must look like https://www.linkedin.com/in/<public-id>/.');
+  if (input.linkedin_url && input.linkedin_url.trim()) {
+    const u = usernameFromUrl(input.linkedin_url);
+    if (!u) throw new ToolError('invalid_recipient', 'linkedin_url must look like https://www.linkedin.com/in/<public-id>/.');
     return u;
   }
   const raw = (input.linkedin_username as string).trim().replace(/^@/, '');

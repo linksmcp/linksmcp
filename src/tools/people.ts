@@ -4,10 +4,10 @@ import { acceptInvitation, listInvitations, sendInvitation } from '../linkedin/i
 import { getDistance, getProfile } from '../linkedin/profile.js';
 import { searchPeople } from '../linkedin/search.js';
 import { ToolError } from '../wire.js';
-import { json, wrap, type ToolContext, type ToolDef } from './types.js';
+import { json, limitArg, queryArg, wrap, type ToolContext, type ToolDef } from './types.js';
 
-const username = z.string().optional().describe('Public id from the profile URL.');
-const profileUrl = z.string().optional().describe('https://www.linkedin.com/in/...');
+const linkedinUrl = z.string().optional().describe("The person's LinkedIn profile URL, https://www.linkedin.com/in/...");
+const username = z.string().optional().describe('Self-hosted shortcut: the public id from the profile URL.');
 
 export function peopleTools({ door }: ToolContext): ToolDef[] {
   const { store } = door;
@@ -32,7 +32,7 @@ export function peopleTools({ door }: ToolContext): ToolDef[] {
       name: 'get_person_profile',
       title: 'Read a profile',
       description: 'Read one LinkedIn profile by public id or profile URL, with your connection degree (1, 2, 3). Counts as a profile view.',
-      inputSchema: { linkedin_username: username, profile_url: profileUrl },
+      inputSchema: { linkedin_url: linkedinUrl, linkedin_username: username },
       annotations: { readOnlyHint: true, openWorldHint: true },
       handler: wrap(async (args) => {
         const u = resolveUsername(args);
@@ -55,20 +55,25 @@ export function peopleTools({ door }: ToolContext): ToolDef[] {
         'Find people by keywords (one LinkedIn search page, up to 10 people per page). location and current_company take LinkedIn ids (geo id, company id) as filters; other text is added to the keywords. ' +
         'Use next_start for the next page. Counts as a search.',
       inputSchema: {
-        keywords: z.string(),
-        location: z.string().optional(),
-        current_company: z.string().optional(),
-        limit: z.number().int().min(1).max(25).optional().describe('1 to 25, default 10.'),
-        start: z.number().int().min(0).optional().describe('Offset, default 0.'),
+        keywords: z.string().describe('2 to 200 characters.'),
+        location: z.string().optional().describe('Up to 200 characters.'),
+        current_company: z.string().optional().describe('Up to 200 characters.'),
+        limit: z.number().int().optional().describe('1 to 25, default 10.'),
+        start: z.number().int().optional().describe('Offset, 0 or more, default 0.'),
       },
       annotations: { readOnlyHint: true, openWorldHint: true },
-      handler: wrap(async ({ keywords, location, current_company, limit, start }) => {
-        if (!keywords || !String(keywords).trim()) throw new ToolError('invalid_recipient', 'keywords is required.');
+      handler: wrap(async (args) => {
+        const keywords = queryArg(args.keywords, 2, 200, true)!;
+        const location = queryArg(args.location, 0, 200, false) || undefined;
+        const current_company = queryArg(args.current_company, 0, 200, false) || undefined;
+        const limit = limitArg(args.limit, 1, 25, 10);
+        if (args.start !== undefined && (!Number.isInteger(args.start) || args.start < 0)) throw new ToolError('invalid_limit', 'start must be a whole number, 0 or more.');
+        const start: number = args.start ?? 0;
         door.checkRead('search');
         const c = await door.client();
-        const out = await door.guard(() => searchPeople(c, { keywords, location, current_company, start: start ?? 0, limit: limit ?? 10 }, door.config().search_query_id));
+        const out = await door.guard(() => searchPeople(c, { keywords, location, current_company, start, limit }, door.config().search_query_id));
         door.record(['search'], keywords);
-        if (!out.people.length && (start ?? 0) === 0) {
+        if (!out.people.length && start === 0) {
           return json({
             ...out,
             note: 'No results. If searches that used to work now return nothing, LinkedIn may have changed its search query id: set LINKSMCP_SEARCH_QUERY_ID or search_query_id in config.json.',
@@ -84,13 +89,13 @@ export function peopleTools({ door }: ToolContext): ToolDef[] {
         'Send a LinkedIn connection request to one person, with an optional note (300 characters, no links). Counts as an invitation. ' +
         'Daily limit, working hours and a 5 to 8 minute gap between requests apply.',
       inputSchema: {
+        linkedin_url: linkedinUrl,
         linkedin_username: username,
-        profile_url: profileUrl,
         note: z.string().max(300).optional(),
       },
       annotations: { openWorldHint: true },
-      handler: wrap(async ({ linkedin_username, profile_url, note }) => {
-        const u = resolveUsername({ linkedin_username, profile_url });
+      handler: wrap(async ({ linkedin_url, linkedin_username, note }) => {
+        const u = resolveUsername({ linkedin_url, linkedin_username });
         const text = typeof note === 'string' ? note.trim() : '';
         door.precheckWrite({ kind: 'invite', text });
         const person = await door.person(u, { needDistance: true });
@@ -109,12 +114,13 @@ export function peopleTools({ door }: ToolContext): ToolDef[] {
       description: 'List sent or received connection invitations that are still pending.',
       inputSchema: {
         direction: z.enum(['sent', 'received']),
-        limit: z.number().int().min(1).max(100).optional().describe('1 to 100, default 20.'),
+        limit: z.number().int().optional().describe('1 to 100, default 20.'),
       },
       annotations: { readOnlyHint: true, openWorldHint: true },
       handler: wrap(async ({ direction, limit }) => {
+        const n = limitArg(limit, 1, 100, 20);
         const c = await door.client();
-        const invs = await door.guard(() => listInvitations(c, direction, limit ?? 20));
+        const invs = await door.guard(() => listInvitations(c, direction, n));
         for (const i of invs) {
           store.upsertInvitation({ id: i.id, direction: i.direction, shared_secret: i.shared_secret, username: i.linkedin_username, name: i.name, sent_at: i.sent_at, note: i.note ?? null });
         }

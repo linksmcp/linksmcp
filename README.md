@@ -92,6 +92,10 @@ npx linksmcp login
 
 Paste the cookie when asked. linksmcp checks it against LinkedIn and saves it to `~/.linksmcp/auth.json` with file mode 600, readable only by your user. You can also pass the cookie as the `LINKSMCP_LI_AT` environment variable, or sign in from your assistant with the `connect_linkedin` tool.
 
+A cookie export file works too. Export the cookies for linkedin.com as JSON with a cookie export browser extension and run `npx linksmcp login --cookie-jar cookies.json`. The same JSON, as an array or as a string, is what the `connect_linkedin` tool takes in `cookie_jar`, together with `country`, the two letter code of where the account is normally used. On your own machine `country` is accepted and not used, and plain `li_at` works as a shortcut instead of `cookie_jar`. There is no verification code step here: the cookies either sign in at once or fail at once.
+
+The account on your own machine always has the id `local`. `connect_linkedin` and `get_linkedin_status` answer with `{account_id: "local", status, step, error, profile_name, profile_url}`, where `status` is `connected`, `failed` or `disconnected`, plus today's `limits` and a `hint`.
+
 Other commands:
 
 | Command | What it does |
@@ -113,30 +117,33 @@ Environment variables:
 
 ## Tools
 
-linksmcp speaks door-contract 1.0: 9 shared messaging tools plus 9 LinkedIn tools. Every write is checked against the limits below before it is sent.
+linksmcp speaks door-contract 1.0: 19 tools, the 9 shared messaging tools plus 10 LinkedIn tools. Every write is checked against the limits below before it is sent.
 
 | Group | Tool | What it does |
 | --- | --- | --- |
-| Account | `list_accounts` | Lists the connected LinkedIn account. |
-| Account | `connect_linkedin` | Signs in with the `li_at` cookie of your own LinkedIn session. |
-| Account | `get_linkedin_status` | Shows whether the account is connected, paused or signed out. |
-| Account | `disconnect_linkedin` | Forgets the stored cookie. LinkedIn itself is not signed out. |
+| Account | `list_accounts` | Lists the connected LinkedIn account and the channels this server supports (one: LinkedIn, one account). |
+| Account | `connect_linkedin` | Signs in with the cookies of your own LinkedIn browser session (`cookie_jar` and `country`, or `li_at` on your own machine). |
+| Account | `get_linkedin_status` | Shows whether the account is connected, failed or disconnected, with today's limits. Takes `account_id`, which is `local` here. |
+| Account | `submit_linkedin_code` | Only on the hosted version, where LinkedIn may ask for a verification code. On your own machine it answers `invalid_request`. |
+| Account | `disconnect_linkedin` | Deletes the stored cookies for `account_id` `local`. LinkedIn itself is not signed out, and a running 48 hour pause stays in force. |
 | Account | `get_my_profile` | Reads your own profile. |
-| People | `get_person_profile` | Reads one profile by username or profile URL. Counts as a profile view. |
+| People | `get_person_profile` | Reads one profile by `linkedin_url`, or by `linkedin_username` on your own machine. Counts as a profile view. |
 | People | `search_people` | Finds people by keywords, location and current company. Counts as a search. |
-| People | `connect_with_person` | Sends a connection request with an optional note of up to 300 characters, without links. |
+| People | `connect_with_person` | Sends a connection request to a `linkedin_url` (or `linkedin_username`) with an optional note of up to 300 characters, without links. |
 | People | `list_invitations` | Lists sent or received invitations. |
 | People | `accept_invitation` | Accepts a received invitation. Counts as an accept. |
-| Inbox | `list_chats` | Lists your LinkedIn threads, most recent first. |
+| Inbox | `list_chats` | Lists your LinkedIn threads, most recent first, each with its `channel`, type and unread count. |
 | Inbox | `list_messages` | Reads one thread from LinkedIn, or lists stored messages when no thread is given. |
 | Inbox | `get_message` | Gets one stored message by id. |
-| Inbox | `send_message` | Sends one message to one person, in an existing thread or a new one with a first degree connection. |
+| Inbox | `send_message` | Sends one text message to one person, in an existing thread or a new one with a first degree connection. |
 | Inbox | `wait_for_messages` | Waits for new inbound messages and returns them as they arrive. |
-| Inbox | `search_messages` | Full text search over every message stored on your machine. |
-| Inbox | `mark_read` | Marks a thread as read on LinkedIn. |
-| Usage | `get_usage` | Shows today's counts against each limit and when the next write is allowed. |
+| Inbox | `search_messages` | Full text search over every message stored on your machine. The query is 2 to 200 characters. |
+| Inbox | `mark_read` | Marks a thread as read on LinkedIn and answers `{marked: true, receipt_sent: true}`. |
+| Usage | `get_usage` | Shows today's counts against each limit, when the next write is allowed, the account `status` (`active` or `suspended` with a `suspended_reason`) and the account counts. |
 
-A recipient is one object with exactly one of `linkedin_username` (the public id from the profile URL), `profile_url` (`https://www.linkedin.com/in/...`) or `contact_id` (a chat id from `list_chats`). There is no bulk tool and `to` never takes a list.
+A recipient is one object with exactly one of `linkedin_url` (the profile URL, `https://www.linkedin.com/in/...`), `contact_id` (a chat id from `list_chats` or a message) or, on your own machine, `linkedin_username` (the public id from the profile URL). There is no bulk tool and `to` never takes a list.
+
+`send_message` needs `text`, up to 4096 characters. `opt_in` (true only when the person agreed to hear from you) is accepted and logged. The answer is `{message_id, status: "sent", reply_to_applied: false}`: LinkedIn has no quoted replies, so with `reply_to` the text is simply posted in the thread. A missing text answers `invalid_text`, a `media_url` that is not https answers `invalid_media_url`, and any media answers `media_unavailable`.
 
 ## Limits
 
@@ -204,7 +211,7 @@ The same tool names also work on the hosted version at https://linksmcp.com.
 
 ### Does linksmcp work with Claude Desktop?
 
-Yes. Add the `mcpServers` block from the Install section to `claude_desktop_config.json`, restart Claude Desktop, run `npx linksmcp login` once, and the 18 tools appear in Claude. Claude Code, Cursor and any other stdio MCP client work the same way.
+Yes. Add the `mcpServers` block from the Install section to `claude_desktop_config.json`, restart Claude Desktop, run `npx linksmcp login` once, and the 19 tools appear in Claude. Claude Code, Cursor and any other stdio MCP client work the same way.
 
 ### Is linksmcp safe to use?
 
@@ -224,11 +231,11 @@ No. `send_message` takes one recipient per call and there is no bulk tool. Every
 
 ### Can I attach files or images to LinkedIn messages?
 
-Not in version 0.1. A call with `media_url` or `media_path` returns `media_unavailable`. Text messages and replies work.
+Not in version 0.1. A call with `media_url` or `media_path` returns `media_unavailable`, and a `media_url` that is not https returns `invalid_media_url`. Text messages and replies work.
 
 ### What happens when LinkedIn asks for a security check?
 
-linksmcp returns `security_challenge` and pauses all writes for 48 hours, while reading the inbox keeps working. Open LinkedIn in your browser and finish the check. If LinkedIn signed you out, copy the new `li_at` cookie and run `npx linksmcp login` again.
+linksmcp returns `security_challenge` and pauses all writes for 48 hours, while reading the inbox keeps working. Open LinkedIn in your browser and finish the check. If LinkedIn signed you out, copy the new `li_at` cookie (or export the cookies again) and run `npx linksmcp login` again.
 
 ### Can I change the daily limits?
 
@@ -241,11 +248,11 @@ Every refusal is a tool result with `isError: true` whose text is JSON: `{"error
 | Code | Meaning |
 | --- | --- |
 | `no_connected_account` | No LinkedIn account is signed in. Run `linksmcp login` or call `connect_linkedin`. |
-| `session_expired` | The cookie no longer signs in. Copy a fresh `li_at` and sign in again. |
-| `security_challenge` | LinkedIn asked for a security check. Writes pause for 48 hours. Finish the check in a browser. |
+| `session_expired` | The LinkedIn cookies no longer sign in. Connect again with fresh cookies. |
+| `security_challenge` | LinkedIn asked for a security check. On your own machine writes are paused for 48 hours. Finish the check in a browser. |
 | `account_suspended` | LinkedIn restricted the account. Writes pause for 48 hours. |
 | `invalid_recipient` | The recipient is malformed, a list, or not a LinkedIn member. |
-| `contact_not_found` | No chat with that id is known. |
+| `contact_not_found` | No chat or contact with that id is known, in `mark_read` or `send_message` with `to.contact_id`. |
 | `message_not_found` | No message with that id is known. |
 | `needs_connection_first` | A new thread can only be opened with a first degree connection. |
 | `link_not_allowed` | A link in a connection note, or in a message to a person who has not written back. The text is refused, not edited. |
@@ -253,12 +260,26 @@ Every refusal is a tool result with `isError: true` whose text is JSON: `{"error
 | `rate_limited` | Too soon after the last write, inside the 24 hour follow up gap, or LinkedIn asked to slow down. Wait `retry_after_s`. |
 | `daily_send_cap` | Today's message limit is reached. `retry_after_s` points to the next local midnight. |
 | `new_contact_cap` | Today's new thread limit is reached. `retry_after_s` points to the next local midnight. |
-| `daily_invite_cap` | Today's connection request limit is reached. |
-| `daily_read_cap` | Today's profile view or search limit is reached. |
+| `daily_invite_cap` | Today's connection request or accept limit is reached. `retry_after_s` points to the next local midnight. |
+| `daily_read_cap` | Today's profile view or search limit is reached. `retry_after_s` points to the next local midnight. |
 | `media_unavailable` | Attachments are not supported in this version. |
 | `send_failed` | LinkedIn rejected the send. |
+| `account_not_found` | `account_id` is not one of your accounts. On your own machine the only id is `local`. |
+| `invalid_request` | A field has the wrong type or value. |
+| `invalid_text` | `text` is missing or longer than 4096 characters. |
+| `invalid_media_url` | `media_url` is not an https URL. |
+| `invalid_reply_to` | `reply_to` is not a message id. |
+| `invalid_chat_id` | `chat_id` is malformed. |
+| `invalid_cursor` | `cursor` or `before` is not a cursor this server returned. |
+| `invalid_limit` | `limit` is out of range. |
+| `invalid_query` | `query` is missing, too short or too long. |
+| `invalid_type` | `type` is not user, group or channel. |
+| `invalid_timeout` | `timeout_s` is out of range. |
+| `invalid_direction` | `direction` is not inbound or outbound. |
 
-The full contract, including codes used only by other channels, is in [`contract/door-contract.json`](contract/door-contract.json).
+A well formed `chat_id` that is not known, used as a filter in `list_messages`, `wait_for_messages` or `search_messages`, returns an empty list rather than an error.
+
+The full contract, including codes used only by other channels or by the hosted version, is in [`contract/door-contract.json`](contract/door-contract.json).
 
 ### Search stopped working
 

@@ -2,16 +2,17 @@
 
 > linksmcp is a free, MIT licensed LinkedIn MCP server you run on your own machine. It gives Claude, Cursor and any MCP client tools to read your LinkedIn inbox, reply, look up profiles, search people and send connection requests, signed in with your own LinkedIn session cookie (li_at). It runs over stdio, stores the messages it has seen in a local SQLite file and sends nothing anywhere except LinkedIn: no account, no telemetry, no update check. Daily limits, working hours, pacing and pauses are enforced on your machine before every write.
 
-Install: `npx linksmcp` (npm package `linksmcp`, Node.js 20 or newer). Sign in once with `npx linksmcp login`. Docker: `docker run -i -v ~/.linksmcp:/data ghcr.io/linksmcp/linksmcp`.
+Install: `npx linksmcp` (npm package `linksmcp`, Node.js 20 or newer). Sign in once with `npx linksmcp login`, or `npx linksmcp login --cookie-jar cookies.json` with a cookie export file. Docker: `docker run -i -v ~/.linksmcp:/data ghcr.io/linksmcp/linksmcp`.
 
-## Tools (door-contract 1.0)
+## Tools (door-contract 1.0, 19 tools)
 
 - list_accounts: list the connected LinkedIn account
-- connect_linkedin: sign in with the li_at cookie of your own session
-- get_linkedin_status: connection status of the account
-- disconnect_linkedin: forget the stored cookie
+- connect_linkedin: sign in with the cookies of your own browser session (cookie_jar and country, or li_at on your own machine)
+- get_linkedin_status: status of account "local": connected, failed or disconnected, with limits
+- submit_linkedin_code: hosted version only; on your own machine it answers invalid_request
+- disconnect_linkedin: delete the stored cookies
 - get_my_profile: read your own profile
-- get_person_profile: read one profile (counts as a profile view)
+- get_person_profile: read one profile by linkedin_url or linkedin_username (counts as a profile view)
 - search_people: find people by keywords, location, current company (counts as a search)
 - connect_with_person: send a connection request with an optional note without links
 - list_invitations: list sent or received invitations
@@ -19,9 +20,9 @@ Install: `npx linksmcp` (npm package `linksmcp`, Node.js 20 or newer). Sign in o
 - list_chats: list LinkedIn threads, most recent first
 - list_messages: read a thread, or list stored messages
 - get_message: get one stored message
-- send_message: send one message to one recipient (new threads only with first degree connections)
+- send_message: send one text message to one recipient, to.linkedin_url, to.contact_id or to.linkedin_username (new threads only with first degree connections; no media in 0.1)
 - wait_for_messages: wait for new inbound messages
-- search_messages: full text search over stored messages
+- search_messages: full text search over stored messages (query of 2 to 200 characters)
 - mark_read: mark a thread read
 - get_usage: today's counts against each limit
 
