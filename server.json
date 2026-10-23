@@ -28,7 +28,6 @@
     },
     {
       "registryType": "oci",
-      "registryBaseUrl": "https://ghcr.io",
       "identifier": "ghcr.io/linksmcp/linksmcp:0.1.0",
       "version": "0.1.0",
       "transport": {
